@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 public protocol AsyncQueuing {
@@ -41,9 +42,13 @@ extension QueuedRemoteXPCService {
 }
 
 extension QueuedRemoteXPCService {
+	public typealias ResultOperationHandler<Value> = (Result<Value, Error>) -> Void
+	public typealias ErrorOperationHandler = (Error?) -> Void
+	public typealias ValueErrorOperationHandler<Value> = (Value?, Error?) -> Void
+
 	public func addResultOperation<Value: Sendable>(
 		barrier: Bool = false,
-		operation: @escaping (Service, @escaping (Result<Value, Error>) -> Void) -> Void
+		operation: @escaping (Service, sending @escaping ResultOperationHandler<Value>) -> Void
 	) async throws -> Value {
 		let task: Task<Value, Error> = queue.addOperation(priority: nil, barrier: barrier) {
 			let conn = try await provider()
@@ -58,7 +63,7 @@ extension QueuedRemoteXPCService {
 
 	public func addErrorOperation(
 		barrier: Bool = false,
-		operation: @escaping (Service, @escaping @Sendable (Error?) -> Void) -> Void
+		operation: @escaping (Service, sending @escaping ErrorOperationHandler) -> Void
 	) async throws {
 		let task: Task<Void, Error> = queue.addOperation(priority: nil, barrier: barrier) {
 			let conn = try await provider()
@@ -73,7 +78,7 @@ extension QueuedRemoteXPCService {
 
 	public func addDiscardingErrorOperation(
 		barrier: Bool = false,
-		operation: @escaping (Service, @escaping @Sendable (Error?) -> Void) -> Void
+		operation: @escaping (Service, sending @escaping ErrorOperationHandler) -> Void
 	) {
 		queue.addOperation(priority: nil, barrier: barrier) {
 			let conn = try await provider()
@@ -86,7 +91,7 @@ extension QueuedRemoteXPCService {
 
 	public func addValueErrorOperation<Value: Sendable>(
 		barrier: Bool = false,
-		operation: @escaping (Service, @escaping @Sendable (Value?, Error?) -> Void) -> Void
+		operation: @escaping (Service, sending @escaping ValueErrorOperationHandler<Value>) -> Void
 	) async throws -> Value {
 		let task: Task<Value, Error> = queue.addOperation(priority: nil, barrier: barrier) {
 			let conn = try await provider()
@@ -99,14 +104,15 @@ extension QueuedRemoteXPCService {
 		return try await task.value
 	}
 
-	public func addDecodingOperation<Value: Sendable & Decodable>(
+	public func addDecodingOperation<Value: Sendable & Decodable, Decoder: TopLevelDecoder>(
 		barrier: Bool = false,
-		operation: @escaping (Service, @escaping @Sendable (Data?, Error?) -> Void) -> Void
-	) async throws -> Value {
+		using decoder: Decoder = JSONDecoder(),
+		operation: @escaping (Service, sending @escaping ValueErrorOperationHandler<Data>) -> Void
+	) async throws -> Value where Decoder.Input == Data {
 		let task: Task<Value, Error> = queue.addOperation(priority: nil, barrier: barrier) {
 			let conn = try await provider()
 
-			return try await conn.withDecodingCompletion { service, handler in
+			return try await conn.withDecodingCompletion(using: decoder) { service, handler in
 				operation(service, handler)
 			}
 		}

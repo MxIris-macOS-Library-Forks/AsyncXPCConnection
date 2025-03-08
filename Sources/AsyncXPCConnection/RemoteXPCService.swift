@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 /// A thin wrapper around NSXPCConnection with a defined service type.
@@ -26,6 +27,7 @@ public struct RemoteXPCService<Service> {
 }
 
 extension RemoteXPCService {
+#if compiler(<6.0)
 	@_unsafeInheritExecutor
 	public func withContinuation<T>(
 		function: String = #function,
@@ -41,9 +43,27 @@ extension RemoteXPCService {
 	) async throws {
 		try await connection.withService(function: function, body)
 	}
+#else
+	public func withContinuation<T>(
+		isolation: isolated (any Actor)? = #isolation,
+		function: String = #function,
+		_ body: (Service, CheckedContinuation<T, Error>) -> Void
+	) async throws -> T {
+		try await connection.withContinuation(isolation: isolation, function: function, body)
+	}
+
+	public func withService(
+		isolation: isolated (any Actor)? = #isolation,
+		function: String = #function,
+		_ body: (Service) throws -> Void
+	) async throws {
+		try await connection.withService(isolation: isolation, function: function, body)
+	}
+#endif
 }
 
 extension RemoteXPCService {
+#if compiler(<6.0)
 	@_unsafeInheritExecutor
 	public func withValueErrorCompletion<Value: Sendable>(
 		function: String = #function,
@@ -69,10 +89,45 @@ extension RemoteXPCService {
 	}
 
 	@_unsafeInheritExecutor
-	public func withDecodingCompletion<Value: Decodable>(
+	public func withDecodingCompletion<Value: Decodable, Decoder: TopLevelDecoder>(
 		function: String = #function,
+		using decoder: Decoder = JSONDecoder(),
 		_ body: (Service, @escaping (Data?, Error?) -> Void) -> Void
-	) async throws -> Value {
-		try await connection.withDecodingCompletion(function: function, body)
+	) async throws -> Value where Decoder.Input == Data {
+		try await connection.withDecodingCompletion(function: function, using: decoder, body)
 	}
+#else
+	public func withValueErrorCompletion<Value: Sendable>(
+		isolation: isolated (any Actor)? = #isolation,
+		function: String = #function,
+		_ body: (Service, sending @escaping (Value?, Error?) -> Void) -> Void
+	) async throws -> Value {
+		try await connection.withValueErrorCompletion(isolation: isolation, function: function, body)
+	}
+
+	public func withResultCompletion<Value: Sendable>(
+		isolation: isolated (any Actor)? = #isolation,
+		function: String = #function,
+		_ body: (Service, sending @escaping (Result<Value, Error>) -> Void) -> Void
+	) async throws -> Value {
+		try await connection.withResultCompletion(isolation: isolation, function: function, body)
+	}
+
+	public func withErrorCompletion(
+		isolation: isolated (any Actor)? = #isolation,
+		function: String = #function,
+		_ body: (Service, sending @escaping (Error?) -> Void) -> Void
+	) async throws {
+		try await connection.withErrorCompletion(isolation: isolation, function: function, body)
+	}
+
+	public func withDecodingCompletion<Value: Decodable, Decoder: TopLevelDecoder>(
+		isolation: isolated (any Actor)? = #isolation,
+		function: String = #function,
+		using decoder: Decoder = JSONDecoder(),
+		_ body: (Service, sending @escaping (Data?, Error?) -> Void) -> Void
+	) async throws -> Value where Decoder.Input == Data {
+		try await connection.withDecodingCompletion(isolation: isolation, function: function, using: decoder, body)
+	}
+#endif
 }
